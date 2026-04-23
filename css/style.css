@@ -465,3 +465,47 @@ body::before {
     transition-duration: 0.01ms !important;
   }
 }
+/* --- Manual Entry Mode --- */
+.manual-units-list { display: flex; flex-direction: column; gap: 1rem; }
+.manual-unit-card {
+  background: rgba(13,21,37,0.8); border: 1.5px solid rgba(148,163,184,0.15);
+  border-radius: 14px; padding: 1.2rem; position: relative;
+  transition: all 0.3s;
+}
+.manual-unit-card:hover { border-color: rgba(16,185,129,0.25); }
+.manual-unit-card .unit-card-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem;
+}
+.manual-unit-card .unit-number {
+  font-size: 0.75rem; font-weight: 700; color: var(--accent-lt);
+  text-transform: uppercase; letter-spacing: 0.5px; font-family: 'Sora', sans-serif;
+}
+.manual-unit-card .remove-unit-btn {
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  font-size: 0.85rem; padding: 4px 8px; border-radius: 6px; transition: all 0.3s;
+}
+.manual-unit-card .remove-unit-btn:hover { color: #f87171; background: rgba(239,68,68,0.1); }
+.manual-unit-card input[type="text"] {
+  width: 100%; padding: 10px 14px; background: rgba(6,11,24,0.8);
+  border: 1px solid rgba(148,163,184,0.1); border-radius: 10px;
+  color: var(--text); font-size: 0.95rem; font-family: 'DM Sans', sans-serif;
+  margin-bottom: 0.6rem; transition: all 0.3s;
+}
+.manual-unit-card input[type="text"]:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow);
+}
+.manual-unit-card input[type="text"]::placeholder { color: var(--dim); }
+.manual-unit-card textarea {
+  width: 100%; min-height: 80px; padding: 10px 14px; background: rgba(6,11,24,0.8);
+  border: 1px solid rgba(148,163,184,0.1); border-radius: 10px;
+  color: var(--text); font-size: 0.85rem; font-family: 'DM Sans', sans-serif;
+  resize: vertical; line-height: 1.5; transition: all 0.3s;
+}
+.manual-unit-card textarea:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow);
+}
+.manual-unit-card textarea::placeholder { color: var(--dim); }
+.manual-unit-card .field-label {
+  font-size: 0.7rem; font-weight: 600; color: var(--dim);
+  text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; display: block;
+}
