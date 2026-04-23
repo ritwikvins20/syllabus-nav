@@ -4,14 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Smart Syllabus Navigator</title>
-
-  <!-- Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-  <!-- Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-
-  <!-- Our CSS (Person B will work on this) -->
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -19,7 +13,6 @@
   <!-- ===== PAGE 1: LANDING PAGE ===== -->
   <div id="page-landing" class="page active">
     <div class="container">
-      <!-- Nav bar at top -->
       <nav class="nav-bar">
         <div class="logo">
           <i class="fas fa-compass"></i>
@@ -28,7 +21,6 @@
         <button class="btn-outline" onclick="goToPage('page-input')">Get Started</button>
       </nav>
 
-      <!-- Big hero section -->
       <div class="hero">
         <div class="hero-badge">
           <i class="fas fa-sparkles"></i> AI-Powered Study Intelligence
@@ -52,7 +44,6 @@
         </div>
       </div>
 
-      <!-- 3 feature cards -->
       <div class="features-grid">
         <div class="feature-card">
           <div class="feature-icon green"><i class="fas fa-brain"></i></div>
@@ -89,7 +80,7 @@
         <input type="text" id="subjectName" class="form-input" placeholder="e.g., Operating Systems, DBMS" required>
       </div>
 
-      <!-- Syllabus Input -->
+      <!-- Syllabus Input — NOW WITH 3 TABS -->
       <div class="form-group">
         <label class="form-label">Syllabus Input</label>
         <div class="tab-toggle">
@@ -99,10 +90,17 @@
           <button class="tab-btn" onclick="switchInputMode('pdf', this)">
             <i class="fas fa-file-pdf"></i> Upload PDF
           </button>
+          <button class="tab-btn" onclick="switchInputMode('manual', this)">
+            <i class="fas fa-list-check"></i> Manual Entry
+          </button>
         </div>
+
+        <!-- Text paste -->
         <div id="textInputWrap">
-          <textarea id="syllabusText" class="form-textarea" placeholder="Paste your full syllabus here. Include unit names, chapter titles, and subtopics..."></textarea>
+          <textarea id="syllabusText" class="form-textarea" placeholder="Paste your full syllabus here. Include unit names, chapter titles, and subtopics...&#10;&#10;Works with structured formats (Unit 1: Name) and paragraph formats (Name: topic1, topic2, topic3)"></textarea>
         </div>
+
+        <!-- PDF upload -->
         <div id="pdfInputWrap" style="display:none">
           <label class="file-upload-label">
             <i class="fas fa-cloud-upload-alt"></i>
@@ -112,6 +110,15 @@
           <div id="pdfStatus" class="pdf-status hidden">
             <i class="fas fa-file-pdf"></i> <span id="pdfFileName"></span>
           </div>
+        </div>
+
+        <!-- Manual entry -->
+        <div id="manualInputWrap" style="display:none">
+          <p class="form-hint" style="margin-bottom:1rem">Add your units one by one. This guarantees accurate topic extraction.</p>
+          <div id="manualUnits" class="manual-units-list"></div>
+          <button type="button" class="btn-outline btn-sm" onclick="addManualUnit()" style="margin-top:0.8rem">
+            <i class="fas fa-plus"></i> Add Unit
+          </button>
         </div>
       </div>
 
@@ -199,6 +206,11 @@
         <span><i class="fas fa-circle green"></i> Low: 1-3</span>
       </div>
 
+      <!-- Emergency manual edit button -->
+      <button class="btn-outline btn-sm" onclick="goToPage('page-input')" style="margin-bottom:1.5rem">
+        <i class="fas fa-pen-to-square"></i> Something wrong? Edit input manually
+      </button>
+
       <!-- Topic cards with sliders will be injected here -->
       <div id="reviewCards" class="review-cards-list"></div>
 
@@ -245,7 +257,6 @@
   <!-- ===== PAGE 5: RESULTS DASHBOARD ===== -->
   <div id="page-results" class="page">
     <div class="container">
-      <!-- Top Bar -->
       <div class="dash-topbar">
         <div class="dash-title-group">
           <div class="logo"><i class="fas fa-compass"></i></div>
@@ -260,7 +271,6 @@
         </div>
       </div>
 
-      <!-- Stats Row -->
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-num green" id="statTopics">0</div><div class="stat-label">Topics</div></div>
         <div class="stat-card"><div class="stat-num cyan" id="statDays">0</div><div class="stat-label">Days</div></div>
@@ -268,14 +278,12 @@
         <div class="stat-card"><div class="stat-num red" id="statHigh">0</div><div class="stat-label">High Priority</div></div>
       </div>
 
-      <!-- Dashboard Tabs -->
       <div class="dash-tabs">
         <button class="dash-tab active" onclick="switchDashTab('schedule', this)"><i class="fas fa-calendar-alt"></i> Schedule</button>
         <button class="dash-tab" onclick="switchDashTab('resources', this)"><i class="fas fa-book-open"></i> Resources</button>
         <button class="dash-tab" onclick="switchDashTab('topics', this)"><i class="fas fa-sitemap"></i> Topic Map</button>
       </div>
 
-      <!-- Tab Contents -->
       <div id="tab-schedule" class="tab-content"></div>
       <div id="tab-resources" class="tab-content" style="display:none"></div>
       <div id="tab-topics" class="tab-content" style="display:none"></div>
@@ -288,7 +296,7 @@
     <span id="toast-msg"></span>
   </div>
 
-  <!-- PDF.js Library (for Person C's PDF parsing) -->
+  <!-- PDF.js Library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
   <!-- Our JavaScript Modules -->
