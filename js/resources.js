@@ -6,14 +6,6 @@
 /**
  * Curated Database of direct links for common CS subjects.
  * Person C: Add more subjects and topics here.
- *
- * Structure:
- *   "subject keyword": {
- *     "topic keyword": {
- *       notes: "direct URL to GFG article",
- *       pyq: "direct URL to GateOverflow tag"
- *     }
- *   }
  */
 const RESOURCE_DB = {
   "operating systems": {
@@ -98,8 +90,6 @@ const RESOURCE_DB = {
       pyq: "https://www.gateoverflow.in/tag/network-security"
     }
   },
-
-  // ========== TASK 3: EXPANDED SUBJECTS ==========
 
   "data structures": {
     "array": {
@@ -513,7 +503,6 @@ function normalize(s) {
 }
 
 // ---- FALLBACK URL GENERATORS ----
-// Used when no API key or no curated match found
 
 export function getFallbackYTUrl(topic, subject, lang) {
   const channels = YT_CHANNELS[lang] || YT_CHANNELS.en;
@@ -530,10 +519,7 @@ export function getFallbackPyqUrl(topic, subject) {
 }
 
 // ---- CURATED MATCH FINDER ----
-// Searches RESOURCE_DB for a matching subject + topic
-
 function findCuratedMatch(topicName, subject) {
-  // Find matching subject
   let subjectData = null;
   const normSubject = normalize(subject);
   for (const key of Object.keys(RESOURCE_DB)) {
@@ -544,7 +530,6 @@ function findCuratedMatch(topicName, subject) {
   }
   if (!subjectData) return null;
 
-  // Find matching topic
   const normTopic = normalize(topicName);
   for (const key of Object.keys(subjectData)) {
     if (normTopic.includes(key) || key.includes(normTopic)) {
@@ -552,7 +537,6 @@ function findCuratedMatch(topicName, subject) {
     }
   }
 
-  // Partial word match
   for (const key of Object.keys(subjectData)) {
     const keyWords = key.split(' ');
     const topicWords = normTopic.split(' ');
@@ -565,15 +549,19 @@ function findCuratedMatch(topicName, subject) {
 }
 
 // ============================================================
-// TASK 1: YOUTUBE DATA API v3 INTEGRATION
+// YOUTUBE DATA API v3 — SINGLE TOP VIDEO
 // ============================================================
 
 /**
- * fetchYouTubeVideo
+ * fetchTopYouTubeVideo
  *
- * Calls the YouTube Data API v3 search endpoint with the topic name + subject + language preference.
- * Fetches top 6 results and ranks them, preferring known educational channels.
- * Returns the best video as: { title, channel, thumbnail, url }
+ * Fetches the **single best** YouTube video for a given topic.
+ *
+ * Strategy:
+ *  1. Search with the top preferred channel name in the query to bias results.
+ *  2. Request only 3 results (saves quota).
+ *  3. Score each result based on channel reputation and relevance.
+ *  4. Return the single highest-scored video.
  *
  * @param {string} topicName  - The topic to search for
  * @param {string} subject    - The parent subject
@@ -581,17 +569,32 @@ function findCuratedMatch(topicName, subject) {
  * @param {string} apiKey     - YouTube Data API v3 key
  * @returns {Promise<{title: string, channel: string, thumbnail: string, url: string}|null>}
  */
-async function fetchYouTubeVideo(topicName, subject, lang, apiKey) {
+async function fetchTopYouTubeVideo(topicName, subject, lang, apiKey) {
   const channels = YT_CHANNELS[lang] || YT_CHANNELS.en;
 
-  // Build search query: include the first preferred channel for better results
-  const query = `${subject} ${topicName} tutorial explanation`;
+  // ── Step 1: Try preferred-channel-biased query ──
+  const preferredQuery = `${subject} ${topicName} ${channels[0]} tutorial`;
 
+  const video = await searchAndPickBest(preferredQuery, channels, lang, apiKey);
+  if (video) return video;
+
+  // ── Step 2: Fallback to generic query without channel name ──
+  const genericQuery = `${subject} ${topicName} tutorial explanation`;
+
+  return await searchAndPickBest(genericQuery, channels, lang, apiKey);
+}
+
+/**
+ * searchAndPickBest
+ *
+ * Executes one YouTube search request, scores results, returns the top one.
+ */
+async function searchAndPickBest(query, preferredChannels, lang, apiKey) {
   const params = new URLSearchParams({
     part: 'snippet',
     q: query,
     type: 'video',
-    maxResults: '6',
+    maxResults: '3',                        // Only need a few to pick the best
     key: apiKey,
     videoEmbeddable: 'true',
     videoSyndicated: 'true',
@@ -612,42 +615,51 @@ async function fetchYouTubeVideo(topicName, subject, lang, apiKey) {
     return null;
   }
 
-  // Rank each result, preferring known educational channels
-  const ranked = data.items.map((item, index) => {
-    const channel = item.snippet.channelTitle || '';
+  // ── Score each result ──
+  let bestItem = null;
+  let bestScore = -Infinity;
+
+  for (let i = 0; i < data.items.length; i++) {
+    const item = data.items[i];
+    const channelTitle = (item.snippet.channelTitle || '').toLowerCase();
+    const title = (item.snippet.title || '').toLowerCase();
     let score = 0;
 
-    // Check against preferred channels (higher index in list = lower priority)
-    channels.forEach((ch, idx) => {
-      if (channel.toLowerCase().includes(ch.toLowerCase())) {
-        score += (channels.length - idx) * 10;
+    // Strong bonus for matching a preferred educational channel
+    preferredChannels.forEach((ch, idx) => {
+      if (channelTitle.includes(ch.toLowerCase())) {
+        score += (preferredChannels.length - idx) * 15;   // Higher-ranked channel = more points
       }
     });
 
-    // Bonus for general educational keywords in channel name
-    if (/academy|university|lectures|tutorial|education|learn|cs50|mit|nptel|open/i.test(channel)) {
-      score += 5;
+    // Bonus for educational keywords in channel name
+    if (/academy|university|lectures?|tutorial|education|learn|cs50|mit|nptel|open/i.test(channelTitle)) {
+      score += 8;
     }
 
-    // Slight penalty for very long titles (often clickbait)
-    if (item.snippet.title.length > 80) {
-      score -= 2;
+    // Bonus if video title contains the topic keywords
+    const topicWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    const titleMatchCount = topicWords.filter(w => title.includes(w)).length;
+    score += titleMatchCount * 3;
+
+    // Penalty for clickbait-style very long titles
+    if (item.snippet.title.length > 90) {
+      score -= 3;
     }
 
-    // Small position bonus so if all scores tie, earlier results win
-    score += (6 - index) * 0.1;
+    // Small positional bonus (YouTube already ranks by relevance)
+    score += (3 - i) * 0.5;
 
-    return { item, score };
-  });
+    if (score > bestScore) {
+      bestScore = score;
+      bestItem = item;
+    }
+  }
 
-  // Sort descending by score
-  ranked.sort((a, b) => b.score - a.score);
+  if (!bestItem) return null;
 
-  const best = ranked[0].item;
-  const videoId = best.id.videoId;
-
-  // Pick the best available thumbnail resolution
-  const thumbs = best.snippet.thumbnails;
+  const videoId = bestItem.id.videoId;
+  const thumbs = bestItem.snippet.thumbnails;
   const thumbnail =
     (thumbs.maxres && thumbs.maxres.url) ||
     (thumbs.high && thumbs.high.url) ||
@@ -656,8 +668,8 @@ async function fetchYouTubeVideo(topicName, subject, lang, apiKey) {
     '';
 
   return {
-    title: best.snippet.title,
-    channel: best.snippet.channelTitle,
+    title: bestItem.snippet.title,
+    channel: bestItem.snippet.channelTitle,
     thumbnail: thumbnail,
     url: `https://www.youtube.com/watch?v=${videoId}`
   };
@@ -670,7 +682,7 @@ async function fetchYouTubeVideo(topicName, subject, lang, apiKey) {
 /**
  * fetchAllResources
  *
- * For each topic, finds: YouTube video, notes link, PYQ link.
+ * For each topic, finds: one YouTube video, notes link, PYQ link.
  * Uses YouTube API when an apiKey is provided; otherwise falls back to search URLs.
  */
 export async function fetchAllResources(topics, subject, lang, apiKey) {
@@ -683,7 +695,7 @@ export async function fetchAllResources(topics, subject, lang, apiKey) {
     const curatedMatch = findCuratedMatch(topic.name, subject);
 
     resources[topic.name] = {
-      // YouTube: will be filled by API if key is available
+      // YouTube: single top video (filled by API if key provided)
       youtube: null,
       youtubeFallbackUrl: getFallbackYTUrl(topic.name, subject, lang),
 
@@ -697,12 +709,12 @@ export async function fetchAllResources(topics, subject, lang, apiKey) {
     };
 
     // -------------------------------------------------------
-    // YouTube API integration
+    // YouTube API — fetch single top video per topic
     // -------------------------------------------------------
     if (apiKey) {
       try {
-        const video = await fetchYouTubeVideo(topic.name, subject, lang, apiKey);
-        resources[topic.name].youtube = video; // { title, channel, thumbnail, url }
+        const video = await fetchTopYouTubeVideo(topic.name, subject, lang, apiKey);
+        resources[topic.name].youtube = video;  // { title, channel, thumbnail, url } or null
       } catch (err) {
         console.warn(`YouTube API error for "${topic.name}":`, err.message);
       }
@@ -718,7 +730,7 @@ export async function fetchAllResources(topics, subject, lang, apiKey) {
 }
 
 // ============================================================
-// TASK 2: PDF PARSING
+// PDF PARSING
 // ============================================================
 
 /**
@@ -742,7 +754,6 @@ export async function parsePDF(file) {
     const page = await pdf.getPage(i);
     const textContent = await page.getTextContent();
 
-    // Extract strings from text items and join with spaces
     const pageText = textContent.items.map(item => item.str).join(' ');
     fullText += pageText + '\n';
   }
