@@ -10,8 +10,6 @@ import { fetchAllResources, parsePDF } from './resources.js';
 
 // ============================
 // APPLICATION STATE
-// This object holds all the data the app needs.
-// Any function can read or change these values.
 // ============================
 const state = {
   subject: '',
@@ -28,9 +26,11 @@ const state = {
   totalHours: 0
 };
 
+// Track which input mode is currently active
+let currentInputMode = 'text';
+
 // ============================
 // PAGE NAVIGATION
-// Shows one page at a time, hides the rest.
 // ============================
 window.goToPage = function(pageId) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -39,13 +39,22 @@ window.goToPage = function(pageId) {
 };
 
 // ============================
-// INPUT MODE TOGGLE (Text / PDF)
+// INPUT MODE TOGGLE (Text / PDF / Manual)
+// Only ONE definition — handles all three modes
 // ============================
 window.switchInputMode = function(mode, btn) {
+  currentInputMode = mode;
   btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('textInputWrap').style.display = mode === 'text' ? 'block' : 'none';
   document.getElementById('pdfInputWrap').style.display = mode === 'pdf' ? 'block' : 'none';
+  document.getElementById('manualInputWrap').style.display = mode === 'manual' ? 'block' : 'none';
+
+  // Auto-add first two units when switching to manual mode
+  if (mode === 'manual' && manualUnitCount === 0) {
+    addManualUnit();
+    addManualUnit();
+  }
 };
 
 // ============================
@@ -79,7 +88,7 @@ window.handlePDFUpload = async function(input) {
 };
 
 // ============================
-// DEMO DATA (for "Try Demo" button)
+// DEMO DATA
 // ============================
 const DEMO_SYLLABUS = `Operating Systems (CS501)
 
@@ -131,6 +140,10 @@ window.loadDemo = function() {
   document.getElementById('dailyHours').value = 4;
   document.getElementById('hoursVal').textContent = '4';
 
+  // Switch to text mode so the demo syllabus is visible
+  const textBtn = document.querySelector('.tab-toggle .tab-btn');
+  if (textBtn) switchInputMode('text', textBtn);
+
   goToPage('page-input');
   showToast('Demo syllabus loaded — hit Analyze', 'success');
 };
@@ -142,27 +155,123 @@ function getFutureDate(daysAhead) {
 }
 
 // ============================
+// MANUAL ENTRY MODE
+// ============================
+
+let manualUnitCount = 0;
+
+// Add a new unit card to the manual entry form
+window.addManualUnit = function() {
+  manualUnitCount++;
+  const container = document.getElementById('manualUnits');
+  if (!container) return;
+  const card = document.createElement('div');
+  card.className = 'manual-unit-card';
+  card.id = `manual-unit-${manualUnitCount}`;
+  card.innerHTML = `
+    <div class="unit-card-header">
+      <span class="unit-number">Unit ${manualUnitCount}</span>
+      <button class="remove-unit-btn" onclick="removeManualUnit('manual-unit-${manualUnitCount}')">
+        <i class="fas fa-trash-alt"></i> Remove
+      </button>
+    </div>
+    <label class="field-label">Unit Name</label>
+    <input type="text" class="manual-unit-name" placeholder="e.g., Inheritance and Exceptions">
+    <label class="field-label">Subtopics (one per line)</label>
+    <textarea class="manual-unit-subs" placeholder="Types of inheritance&#10;Member access rules&#10;Usage of super keyword&#10;Method overriding"></textarea>
+  `;
+  container.appendChild(card);
+};
+
+// Remove a unit card
+window.removeManualUnit = function(cardId) {
+  const card = document.getElementById(cardId);
+  if (card) {
+    card.remove();
+    // Renumber remaining units
+    const cards = document.querySelectorAll('.manual-unit-card');
+    cards.forEach((c, i) => {
+      c.querySelector('.unit-number').textContent = `Unit ${i + 1}`;
+    });
+    manualUnitCount = cards.length;
+  }
+};
+
+// Convert manual entry data into the same format as extractTopics()
+function getManualTopics() {
+  const cards = document.querySelectorAll('.manual-unit-card');
+  const topics = [];
+
+  cards.forEach((card, idx) => {
+    const nameInput = card.querySelector('.manual-unit-name');
+    const subsTextarea = card.querySelector('.manual-unit-subs');
+
+    const name = nameInput ? nameInput.value.trim() : '';
+    const subsText = subsTextarea ? subsTextarea.value.trim() : '';
+
+    if (!name) return; // Skip empty units
+
+    const subtopics = subsText
+      .split('\n')
+      .map(s => s.trim().replace(/^[-•▪▸➤●○◦\d.)\s]+/, '')) // Remove bullets/numbers
+      .filter(s => s.length > 1);
+
+    topics.push({
+      name: name,
+      subtopics: subtopics,
+      weight: 1,
+      priority: 'medium'
+    });
+  });
+
+  // Apply the same weight calculation as the parser
+  if (topics.length === 0) return topics;
+
+  const maxSub = Math.max(...topics.map(t => t.subtopics.length), 1);
+
+  topics.forEach((t, idx) => {
+    const densityScore = (t.subtopics.length / maxSub) * 3;
+    const positionScore = (1 - (idx / topics.length)) * 0.6;
+    const words = new Set(t.subtopics.join(' ').toLowerCase().split(/\s+/).filter(w => w.length > 3));
+    const diversityScore = Math.min(words.size / 15, 0.5);
+    const importantKw = ['introduction', 'fundamentals', 'basics', 'overview', 'concepts', 'principles', 'design', 'analysis', 'architecture', 'management'];
+    const hasImportant = importantKw.some(kw => t.name.toLowerCase().includes(kw)) ? 0.6 : 0;
+
+    const rawWeight = 1 + densityScore + positionScore + diversityScore + hasImportant;
+    t.weight = Math.round(rawWeight * 10) / 10;
+  });
+
+  const maxW = Math.max(...topics.map(t => t.weight));
+  if (maxW > 0) {
+    topics.forEach(t => {
+      t.weight = Math.max(1, Math.round((t.weight / maxW) * 10 * 10) / 10);
+    });
+  }
+
+  topics.forEach(t => {
+    if (t.weight >= 7) t.priority = 'high';
+    else if (t.weight >= 4) t.priority = 'medium';
+    else t.priority = 'low';
+  });
+
+  return topics;
+}
+
+// ============================
 // STEP 1: ANALYZE SYLLABUS
-// Reads inputs → calls YOUR extractTopics → shows Review page
+// Handles both auto-paste and manual entry modes
 // ============================
 window.handleAnalyze = function() {
-  // Read all inputs from the form
+  // Read common inputs
   state.subject = document.getElementById('subjectName').value.trim();
   state.examDate = document.getElementById('examDate').value;
   state.dailyHours = parseFloat(document.getElementById('dailyHours').value);
   state.lang = document.getElementById('langSelect').value;
   state.ytApiKey = document.getElementById('ytApiKey').value.trim();
 
-  // Get syllabus text
-  const textFromBox = document.getElementById('syllabusText').value.trim();
-  if (textFromBox.length > 20) {
-    state.syllabusText = textFromBox;
-  }
-  // If text box is empty, state.syllabusText might have been set by PDF upload
-
-  // Validate
-  if (!state.syllabusText || state.syllabusText.length < 20) {
-    showToast('Please provide a valid syllabus (at least a few lines)', 'error');
+  // Validate common fields first
+  if (!state.subject) {
+    showToast('Please enter a subject name', 'error');
     return;
   }
   if (!state.examDate) {
@@ -176,12 +285,32 @@ window.handleAnalyze = function() {
     return;
   }
 
-  // Call YOUR parser function
-  state.topics = extractTopics(state.syllabusText);
+  // Check which input mode is active and get topics accordingly
+  if (currentInputMode === 'manual') {
+    // ---- MANUAL MODE ----
+    state.topics = getManualTopics();
+    if (state.topics.length === 0) {
+      showToast('Please add at least one unit with a name', 'error');
+      return;
+    }
+  } else {
+    // ---- TEXT / PDF MODE ----
+    const textFromBox = document.getElementById('syllabusText').value.trim();
+    if (textFromBox.length > 20) {
+      state.syllabusText = textFromBox;
+    }
 
-  if (state.topics.length === 0) {
-    showToast('Could not detect topics. Try a more structured format.', 'error');
-    return;
+    if (!state.syllabusText || state.syllabusText.length < 20) {
+      showToast('Please provide a valid syllabus (at least a few lines)', 'error');
+      return;
+    }
+
+    state.topics = extractTopics(state.syllabusText);
+
+    if (state.topics.length === 0) {
+      showToast('Could not detect topics. Try Manual Entry mode instead.', 'error');
+      return;
+    }
   }
 
   // Show the Review page with weight sliders
@@ -191,7 +320,6 @@ window.handleAnalyze = function() {
 
 // ============================
 // REVIEW PAGE RENDERING
-// Shows topics with weight sliders so user can adjust
 // ============================
 function renderReviewPage() {
   const container = document.getElementById('reviewCards');
@@ -237,45 +365,34 @@ window.updateWeight = function(idx, val) {
   const v = parseFloat(val);
   state.topics[idx].weight = v;
 
-  // Update the number display
   const weightEl = document.getElementById('weight-val-' + idx);
   weightEl.textContent = v;
 
-  // Update priority
   const pr = v >= 7 ? 'high' : v >= 4 ? 'medium' : 'low';
   state.topics[idx].priority = pr;
 
-  // Update badge
   const badge = document.getElementById('pr-badge-' + idx);
   badge.className = `badge badge-${pr}`;
   badge.textContent = pr.charAt(0).toUpperCase() + pr.slice(1);
 
-  // Update color
   weightEl.style.color = pr === 'high' ? '#f87171' : pr === 'medium' ? '#fbbf24' : '#34d399';
 };
 
 // ============================
 // STEP 2: GENERATE PLAN
-// After user adjusts weights → calls YOUR scheduler → fetches resources → shows dashboard
 // ============================
 window.handleGenerate = async function() {
-  // Show processing page
   goToPage('page-processing');
   await runProcessingAnimation();
 
-  // Calculate days
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const exam = new Date(state.examDate);
-  state.totalDays = Math.ceil((exam - today) / (1000 * 60 * 60 * 24));
+  const today2 = new Date(); today2.setHours(0, 0, 0, 0);
+  const exam2 = new Date(state.examDate);
+  state.totalDays = Math.ceil((exam2 - today2) / (1000 * 60 * 60 * 24));
   state.totalHours = state.totalDays * state.dailyHours;
 
-  // Call YOUR scheduler function
   state.schedule = generateStudyPlan(state.topics, state.totalDays, state.dailyHours, state.goal);
-
-  // Fetch resources (Person C's code)
   state.resources = await fetchAllResources(state.topics, state.subject, state.lang, state.ytApiKey);
 
-  // Render dashboard and show it
   renderDashboard();
   goToPage('page-results');
 };
@@ -292,16 +409,13 @@ async function runProcessingAnimation() {
     const step = steps[i];
     step.classList.add('visible');
 
-    // Show spinner in the icon
     const icon = step.querySelector('.p-step-icon');
-    const originalHTML = icon.innerHTML;
     icon.innerHTML = '<div class="spinner-small"></div>';
 
     progress.style.width = ((i + 0.5) / steps.length * 100) + '%';
 
     await new Promise(r => setTimeout(r, delays[i]));
 
-    // Complete: replace spinner with check
     icon.innerHTML = '<i class="fas fa-check" style="font-size:0.8rem"></i>';
     step.classList.add('done');
     progress.style.width = ((i + 1) / steps.length * 100) + '%';
@@ -314,7 +428,6 @@ async function runProcessingAnimation() {
 // DASHBOARD RENDERING
 // ============================
 function renderDashboard() {
-  // Stats
   document.getElementById('dashSubject').textContent = state.subject;
   document.getElementById('statTopics').textContent = state.topics.length;
   document.getElementById('statDays').textContent = state.totalDays;
@@ -331,7 +444,6 @@ function renderSchedule() {
   const container = document.getElementById('tab-schedule');
   container.innerHTML = '';
 
-  // Group schedule entries by day
   const dayGroups = {};
   for (const entry of state.schedule) {
     if (!dayGroups[entry.day]) dayGroups[entry.day] = [];
@@ -401,10 +513,8 @@ function renderResources() {
     const section = document.createElement('div');
     section.className = 'resource-section';
 
-    // Build YouTube link HTML
     let ytHtml = '';
     if (r.youtube) {
-      // Real API result (when Person C implements it)
       ytHtml = `
         <a href="${r.youtube.url}" target="_blank" rel="noopener" class="resource-link" style="margin-bottom:0.6rem">
           <div class="resource-icon yt"><i class="fab fa-youtube"></i></div>
@@ -415,7 +525,6 @@ function renderResources() {
           <div class="resource-external"><i class="fas fa-external-link-alt"></i></div>
         </a>`;
     } else {
-      // Fallback search link
       ytHtml = `
         <a href="${r.youtubeFallbackUrl}" target="_blank" rel="noopener" class="resource-link" style="margin-bottom:0.6rem">
           <div class="resource-icon yt"><i class="fab fa-youtube"></i></div>
@@ -560,123 +669,6 @@ window.downloadPlan = function() {
 };
 
 // ============================
-// MANUAL ENTRY MODE
-// ============================
-
-let manualUnitCount = 0;
-
-// Switch input mode to include 'manual'
-window.switchInputMode = function(mode, btn) {
-  btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('textInputWrap').style.display = mode === 'text' ? 'block' : 'none';
-  document.getElementById('pdfInputWrap').style.display = mode === 'pdf' ? 'block' : 'none';
-  document.getElementById('manualInputWrap').style.display = mode === 'manual' ? 'block' : 'none';
-
-  // Auto-add first unit when switching to manual mode
-  if (mode === 'manual' && manualUnitCount === 0) {
-    addManualUnit();
-    addManualUnit();
-  }
-};
-
-// Add a new unit card to the manual entry form
-window.addManualUnit = function() {
-  manualUnitCount++;
-  const container = document.getElementById('manualUnits');
-  const card = document.createElement('div');
-  card.className = 'manual-unit-card';
-  card.id = `manual-unit-${manualUnitCount}`;
-  card.innerHTML = `
-    <div class="unit-card-header">
-      <span class="unit-number">Unit ${manualUnitCount}</span>
-      <button class="remove-unit-btn" onclick="removeManualUnit('manual-unit-${manualUnitCount}')">
-        <i class="fas fa-trash-alt"></i> Remove
-      </button>
-    </div>
-    <label class="field-label">Unit Name</label>
-    <input type="text" class="manual-unit-name" placeholder="e.g., Inheritance and Exceptions">
-    <label class="field-label">Subtopics (one per line)</label>
-    <textarea class="manual-unit-subs" placeholder="Types of inheritance&#10;Member access rules&#10;Usage of super keyword&#10;Method overriding"></textarea>
-  `;
-  container.appendChild(card);
-};
-
-// Remove a unit card
-window.removeManualUnit = function(cardId) {
-  const card = document.getElementById(cardId);
-  if (card) {
-    card.remove();
-    // Renumber remaining units
-    const cards = document.querySelectorAll('.manual-unit-card');
-    cards.forEach((c, i) => {
-      c.querySelector('.unit-number').textContent = `Unit ${i + 1}`;
-    });
-    manualUnitCount = cards.length;
-  }
-};
-
-// Convert manual entry data into the same format as extractTopics()
-function getManualTopics() {
-  const cards = document.querySelectorAll('.manual-unit-card');
-  const topics = [];
-
-  cards.forEach((card, idx) => {
-    const nameInput = card.querySelector('.manual-unit-name');
-    const subsTextarea = card.querySelector('.manual-unit-subs');
-
-    const name = nameInput ? nameInput.value.trim() : '';
-    const subsText = subsTextarea ? subsTextarea.value.trim() : '';
-
-    if (!name) return; // Skip empty units
-
-    const subtopics = subsText
-      .split('\n')
-      .map(s => s.trim().replace(/^[-•▪▸➤●○◦\d.)\s]+/, '')) // Remove bullets/numbers
-      .filter(s => s.length > 1);
-
-    topics.push({
-      name: name,
-      subtopics: subtopics,
-      weight: 1,
-      priority: 'medium'
-    });
-  });
-
-  // Apply the same weight calculation as the parser
-  if (topics.length === 0) return topics;
-
-  const maxSub = Math.max(...topics.map(t => t.subtopics.length), 1);
-
-  topics.forEach((t, idx) => {
-    const densityScore = (t.subtopics.length / maxSub) * 3;
-    const positionScore = (1 - (idx / topics.length)) * 0.6;
-    const words = new Set(t.subtopics.join(' ').toLowerCase().split(/\s+/).filter(w => w.length > 3));
-    const diversityScore = Math.min(words.size / 15, 0.5);
-    const importantKw = ['introduction', 'fundamentals', 'basics', 'overview', 'concepts', 'principles', 'design', 'analysis', 'architecture', 'management'];
-    const hasImportant = importantKw.some(kw => t.name.toLowerCase().includes(kw)) ? 0.6 : 0;
-
-    const rawWeight = 1 + densityScore + positionScore + diversityScore + hasImportant;
-    t.weight = Math.round(rawWeight * 10) / 10;
-  });
-
-  const maxW = Math.max(...topics.map(t => t.weight));
-  if (maxW > 0) {
-    topics.forEach(t => {
-      t.weight = Math.max(1, Math.round((t.weight / maxW) * 10 * 10) / 10);
-    });
-  }
-
-  topics.forEach(t => {
-    if (t.weight >= 7) t.priority = 'high';
-    else if (t.weight >= 4) t.priority = 'medium';
-    else t.priority = 'low';
-  });
-
-  return topics;
-}
-
-// ============================
 // TOAST NOTIFICATIONS
 // ============================
 function showToast(message, type = 'success') {
@@ -693,7 +685,7 @@ function showToast(message, type = 'success') {
 }
 
 // ============================
-// INIT: Set min exam date to tomorrow
+// INIT
 // ============================
 document.addEventListener('DOMContentLoaded', () => {
   const dateInput = document.getElementById('examDate');
