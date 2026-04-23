@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Syllabus Navigator</title>
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Our CSS (Person B will work on this) -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ===== PAGE 1: LANDING PAGE ===== -->
+  <div id="page-landing" class="page active">
+    <div class="container">
+      <!-- Nav bar at top -->
+      <nav class="nav-bar">
+        <div class="logo">
+          <i class="fas fa-compass"></i>
+          <span>SyllabusNav</span>
+        </div>
+        <button class="btn-outline" onclick="goToPage('page-input')">Get Started</button>
+      </nav>
+
+      <!-- Big hero section -->
+      <div class="hero">
+        <div class="hero-badge">
+          <i class="fas fa-sparkles"></i> AI-Powered Study Intelligence
+        </div>
+        <h1 class="hero-title">
+          Transform Your Syllabus Into a
+          <span class="gradient-text">Personalized Roadmap</span>
+        </h1>
+        <p class="hero-subtitle">
+          Upload your syllabus. Our AI extracts topics, weighs priorities,
+          curates the best YouTube videos, notes, and PYQs, then builds
+          a day-by-day study plan tailored to your goals.
+        </p>
+        <div class="hero-buttons">
+          <button class="btn-primary" onclick="goToPage('page-input')">
+            <i class="fas fa-rocket"></i> Start Planning
+          </button>
+          <button class="btn-outline" onclick="loadDemo()">
+            <i class="fas fa-play"></i> Try Demo
+          </button>
+        </div>
+      </div>
+
+      <!-- 3 feature cards -->
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon green"><i class="fas fa-brain"></i></div>
+          <h3>Smart Topic Extraction</h3>
+          <p>AI parses your syllabus, identifies units and subtopics, then assigns weightage you can fine-tune with sliders.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon cyan"><i class="fas fa-video"></i></div>
+          <h3>Direct Video Recommendations</h3>
+          <p>Get the single best YouTube video for each topic in your preferred language, powered by YouTube Data API.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon amber"><i class="fas fa-calendar-check"></i></div>
+          <h3>Adaptive Study Plans</h3>
+          <p>Day-by-day schedules that adapt to your exam date, daily hours, and goal with adjustable topic weights.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PAGE 2: INPUT PAGE ===== -->
+  <div id="page-input" class="page">
+    <div class="container narrow">
+      <button class="back-btn" onclick="goToPage('page-landing')">
+        <i class="fas fa-arrow-left"></i> Back
+      </button>
+
+      <h2 class="page-title">Set Up Your Plan</h2>
+      <p class="page-subtitle">Provide your syllabus and preferences. The AI handles the rest.</p>
+
+      <!-- Subject Name -->
+      <div class="form-group">
+        <label class="form-label">Subject Name</label>
+        <input type="text" id="subjectName" class="form-input" placeholder="e.g., Operating Systems, DBMS" required>
+      </div>
+
+      <!-- Syllabus Input -->
+      <div class="form-group">
+        <label class="form-label">Syllabus Input</label>
+        <div class="tab-toggle">
+          <button class="tab-btn active" onclick="switchInputMode('text', this)">
+            <i class="fas fa-keyboard"></i> Paste Text
+          </button>
+          <button class="tab-btn" onclick="switchInputMode('pdf', this)">
+            <i class="fas fa-file-pdf"></i> Upload PDF
+          </button>
+        </div>
+        <div id="textInputWrap">
+          <textarea id="syllabusText" class="form-textarea" placeholder="Paste your full syllabus here. Include unit names, chapter titles, and subtopics..."></textarea>
+        </div>
+        <div id="pdfInputWrap" style="display:none">
+          <label class="file-upload-label">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <span>Drop your syllabus PDF here or click to browse</span>
+            <input type="file" id="syllabusPDF" accept=".pdf" class="hidden-input" onchange="handlePDFUpload(this)">
+          </label>
+          <div id="pdfStatus" class="pdf-status hidden">
+            <i class="fas fa-file-pdf"></i> <span id="pdfFileName"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Exam Date & Hours -->
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Exam Date</label>
+          <input type="date" id="examDate" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Daily Study Hours: <span id="hoursVal" class="accent">4</span></label>
+          <input type="range" id="dailyHours" min="1" max="12" value="4" step="0.5"
+            oninput="document.getElementById('hoursVal').textContent=this.value" class="form-range">
+          <div class="range-labels"><span>1 hr</span><span>12 hrs</span></div>
+        </div>
+      </div>
+
+      <!-- Goal & Language -->
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Study Goal</label>
+          <div class="goal-options">
+            <div class="goal-card" onclick="selectGoal('pass', this)" data-goal="pass">
+              <i class="fas fa-check"></i>
+              <div><strong>Just Pass</strong><small>High-weight only</small></div>
+            </div>
+            <div class="goal-card selected" onclick="selectGoal('good', this)" data-goal="good">
+              <i class="fas fa-star"></i>
+              <div><strong>Good Score</strong><small>Balanced + revision</small></div>
+            </div>
+            <div class="goal-card" onclick="selectGoal('top', this)" data-goal="top">
+              <i class="fas fa-trophy"></i>
+              <div><strong>Top Score</strong><small>Full + practice</small></div>
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Preferred Language (YouTube only)</label>
+          <select id="langSelect" class="form-input">
+            <option value="en">English</option>
+            <option value="hi">Hindi</option>
+            <option value="ta">Tamil</option>
+            <option value="te">Telugu</option>
+          </select>
+          <small class="form-hint">Only affects YouTube video recommendations. Notes & PYQs stay the same.</small>
+        </div>
+      </div>
+
+      <!-- Advanced Settings -->
+      <details class="advanced-section">
+        <summary><i class="fas fa-gear"></i> Advanced Settings (YouTube API Key)</summary>
+        <div class="advanced-content">
+          <label class="form-label">YouTube Data API v3 Key</label>
+          <input type="text" id="ytApiKey" class="form-input" placeholder="Paste your YouTube API key here">
+          <small class="form-hint">
+            <i class="fas fa-info-circle"></i>
+            Required for direct video recommendations.
+            <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="link">Get a free key</a>
+            from Google Cloud Console. Without a key, search links are provided instead.
+          </small>
+        </div>
+      </details>
+
+      <!-- Submit Button -->
+      <button class="btn-primary btn-full" onclick="handleAnalyze()">
+        <i class="fas fa-wand-magic-sparkles"></i> Analyze Syllabus
+      </button>
+    </div>
+  </div>
+
+  <!-- ===== PAGE 3: REVIEW & ADJUST WEIGHTS ===== -->
+  <div id="page-review" class="page">
+    <div class="container narrow">
+      <button class="back-btn" onclick="goToPage('page-input')">
+        <i class="fas fa-arrow-left"></i> Back to Input
+      </button>
+
+      <h2 class="page-title">Review & Adjust Topics</h2>
+      <p class="page-subtitle">
+        AI has extracted and weighted these topics. Drag the sliders to adjust importance before generating your schedule.
+      </p>
+      <div class="legend-bar">
+        <span><i class="fas fa-circle red"></i> High: 7-10</span>
+        <span><i class="fas fa-circle amber"></i> Medium: 4-6</span>
+        <span><i class="fas fa-circle green"></i> Low: 1-3</span>
+      </div>
+
+      <!-- Topic cards with sliders will be injected here -->
+      <div id="reviewCards" class="review-cards-list"></div>
+
+      <button class="btn-primary btn-full" onclick="handleGenerate()" style="margin-top:2rem">
+        <i class="fas fa-calendar-check"></i> Generate Study Plan
+      </button>
+    </div>
+  </div>
+
+  <!-- ===== PAGE 4: PROCESSING ANIMATION ===== -->
+  <div id="page-processing" class="page">
+    <div class="container narrow center-content">
+      <div class="processing-icon">
+        <i class="fas fa-compass"></i>
+      </div>
+      <h2>Building Your Plan</h2>
+      <p class="page-subtitle">Generating schedule and fetching resources...</p>
+
+      <div id="processingSteps" class="processing-steps">
+        <div class="p-step" data-step="0">
+          <div class="p-step-icon"><span>1</span></div>
+          <div class="p-step-text"><strong>Finalizing topic weights</strong><small>Applying your adjustments</small></div>
+        </div>
+        <div class="p-step" data-step="1">
+          <div class="p-step-icon"><span>2</span></div>
+          <div class="p-step-text"><strong>Generating study schedule</strong><small>Allocating time by priority</small></div>
+        </div>
+        <div class="p-step" data-step="2">
+          <div class="p-step-icon"><span>3</span></div>
+          <div class="p-step-text"><strong>Fetching YouTube recommendations</strong><small>Finding the best video per topic</small></div>
+        </div>
+        <div class="p-step" data-step="3">
+          <div class="p-step-icon"><span>4</span></div>
+          <div class="p-step-text"><strong>Linking notes & PYQ resources</strong><small>Curating study material</small></div>
+        </div>
+      </div>
+
+      <div class="progress-bar">
+        <div id="processingProgress" class="progress-fill" style="width:0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PAGE 5: RESULTS DASHBOARD ===== -->
+  <div id="page-results" class="page">
+    <div class="container">
+      <!-- Top Bar -->
+      <div class="dash-topbar">
+        <div class="dash-title-group">
+          <div class="logo"><i class="fas fa-compass"></i></div>
+          <div>
+            <strong id="dashSubject">Subject</strong>
+            <small>AI-Generated Study Plan</small>
+          </div>
+        </div>
+        <div class="dash-actions">
+          <button class="btn-outline btn-sm" onclick="downloadPlan()"><i class="fas fa-download"></i> Export</button>
+          <button class="btn-outline btn-sm" onclick="goToPage('page-input')"><i class="fas fa-redo"></i> New Plan</button>
+        </div>
+      </div>
+
+      <!-- Stats Row -->
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-num green" id="statTopics">0</div><div class="stat-label">Topics</div></div>
+        <div class="stat-card"><div class="stat-num cyan" id="statDays">0</div><div class="stat-label">Days</div></div>
+        <div class="stat-card"><div class="stat-num amber" id="statHours">0</div><div class="stat-label">Total Hours</div></div>
+        <div class="stat-card"><div class="stat-num red" id="statHigh">0</div><div class="stat-label">High Priority</div></div>
+      </div>
+
+      <!-- Dashboard Tabs -->
+      <div class="dash-tabs">
+        <button class="dash-tab active" onclick="switchDashTab('schedule', this)"><i class="fas fa-calendar-alt"></i> Schedule</button>
+        <button class="dash-tab" onclick="switchDashTab('resources', this)"><i class="fas fa-book-open"></i> Resources</button>
+        <button class="dash-tab" onclick="switchDashTab('topics', this)"><i class="fas fa-sitemap"></i> Topic Map</button>
+      </div>
+
+      <!-- Tab Contents -->
+      <div id="tab-schedule" class="tab-content"></div>
+      <div id="tab-resources" class="tab-content" style="display:none"></div>
+      <div id="tab-topics" class="tab-content" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast">
+    <i id="toast-icon" class="fas fa-check-circle"></i>
+    <span id="toast-msg"></span>
+  </div>
+
+  <!-- PDF.js Library (for Person C's PDF parsing) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+  <!-- Our JavaScript Modules -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
