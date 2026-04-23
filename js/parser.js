@@ -3,42 +3,45 @@
 // YOU own this file. Nobody else should edit it.
 // ============================================================
 
-/**
- * normalize - Makes text lowercase and removes special characters
- * Used internally to compare topic names without worrying about case/punctuation
- */
 function normalize(s) {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
 }
 
-/**
- * toTitleCase - Converts ALL CAPS TEXT to Title Case
- * Example: "PROCESS MANAGEMENT" → "Process Management"
- */
 function toTitleCase(str) {
   return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
 /**
+ * Splits a comma-separated line into individual subtopic strings.
+ * Smart enough to keep fragments like "try, catch, throw" together.
+ */
+function splitCommaLine(text) {
+  const parts = text.split(',');
+  const result = [];
+  let buffer = '';
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+
+    const wordCount = trimmed.split(/\s+/).filter(w => w.length > 0).length;
+
+    // Short fragments (1-2 words) are probably part of the previous subtopic
+    // Example: "Usage of try, catch, throw" should stay together
+    if (wordCount <= 2 && buffer.length > 0) {
+      buffer += ', ' + trimmed;
+    } else {
+      if (buffer) result.push(buffer);
+      buffer = trimmed;
+    }
+  }
+  if (buffer) result.push(buffer);
+
+  return result.map(s => s.replace(/\.\s*$/, '').trim()).filter(s => s.length > 2);
+}
+
+/**
  * extractTopics - THE MAIN FUNCTION
- *
- * Takes raw syllabus text (string) and returns an array of topic objects.
- * Each topic object looks like:
- *   {
- *     name: "Process Management",
- *     subtopics: ["CPU scheduling", "Deadlocks"],
- *     weight: 8.5,        // 1-10, how important this topic is
- *     priority: "high"     // "high", "medium", or "low"
- *   }
- *
- * It handles 7 different syllabus formats:
- * 1. "Unit 1: Process Management" (explicit headers)
- * 2. "PROCESS MANAGEMENT" (all caps headers)
- * 3. "Process Management:" (colon headers)
- * 4. "- CPU scheduling" (bullet subtopics)
- * 5. "1. CPU scheduling" (numbered items)
- * 6. "a) CPU scheduling" (lettered items)
- * 7. Plain short lines (generic fallback)
  */
 export function extractTopics(text) {
   const topics = [];
@@ -46,74 +49,53 @@ export function extractTopics(text) {
 
   // ---- PATTERN DEFINITIONS ----
 
-  // Pattern: "Unit 1: Name" or "Module 2 - Name" etc.
-  const unitHeader = /^(unit|module|chapter|section|part|lecture)\s*[\d.:]+\s*[:\-–.)\s]+(.{2,})/i;
+  // FIXED: Now handles "Unit-1:", "Unit 1:", "Unit1:", "Module-2:" etc.
+  const unitHeader = /^(unit|module|chapter|section|part|lecture)[\s\-]*[\d.:]+\s*[:\-–.)\s]+(.{2,})/i;
 
-  // Pattern: "- subtopic" or "• subtopic" etc.
   const bulletSub = /^[-•▪▸➤●○◦]\s+(.+)/;
-
-  // Pattern: "1) subtopic" or "2. subtopic"
   const numSub = /^\s*(\d{1,2})[.)]\s+(.+)/;
-
-  // Pattern: "a) subtopic" or "b. subtopic"
   const alphaSub = /^\s*([a-z])[.)]\s+(.+)/i;
-
-  // Pattern: ALL CAPS LINE (often a unit title)
   const allCaps = /^[A-Z][A-Z\s&,:\-]{3,}$/;
-
-  // Pattern: Line ending with colon (often a header)
   const colonHeader = /^(.{3,}):\s*$/;
 
-  // Lines to skip (not topics)
-  const skipPatterns = /^(syllabus|curriculum|course|subject|code|credit|hours|semester|batch|duration|prerequisite|objective|outcome|textbook|reference|internal|external|total|max|min|pass|marks|grade)/i;
+  const skipPatterns = /^(syllabus|curriculum|course|subject|code|credit|hours|semester|batch|duration|prerequisite|objective|outcome|textbook|reference|internal|external|total|max|min|pass|marks|grade|signature|date)/i;
 
-  let currentUnit = null;       // The topic we're currently adding subtopics to
-  let lastLineWasHeader = false; // Was the previous line a unit header?
-  let consecutiveSubtopics = 0;  // How many subtopics in a row?
+  let currentUnit = null;
+  let lastLineWasHeader = false;
+  let consecutiveSubtopics = 0;
 
-  // ---- MAIN LOOP: Process each line ----
-
+  // ---- MAIN LOOP ----
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-
-    // Skip junk lines
-    if (line.length < 2) continue;
-    if (/^\d+$/.test(line)) continue;       // standalone numbers
-    if (/^(page|pp)\.?\s*\d+/i.test(line)) continue;  // page numbers
-
+    if (line.length < 2 || /^\d+$/.test(line) || /^(page|pp)\.?\s*\d+/i.test(line)) continue;
     let matched = false;
 
     // ---- TRY 1: Unit/Module/Chapter header ----
     const unitMatch = line.match(unitHeader);
     if (unitMatch && unitMatch[2].trim().length >= 2) {
-      let name = unitMatch[2].trim().replace(/^[:\-–.)\s]+/, '').trim();
+      let name = unitMatch[2].trim().replace(/^[:\-–.)\s]+/, '').replace(/[:\-–.)\s]+$/, '').trim();
       currentUnit = { name, subtopics: [], weight: 1, priority: 'medium' };
       topics.push(currentUnit);
-      matched = true;
-      lastLineWasHeader = true;
-      consecutiveSubtopics = 0;
+      matched = true; lastLineWasHeader = true; consecutiveSubtopics = 0;
     }
     if (matched) continue;
 
-    // ---- TRY 2: ALL CAPS header ----
-    if (allCaps.test(line) && line.length > 3 && line.length < 80) {
-      currentUnit = { name: toTitleCase(line), subtopics: [], weight: 1, priority: 'medium' };
+    // ---- TRY 2: ALL CAPS header (even with trailing colon) ----
+    const cleanLine = line.replace(/:\s*$/, '');
+    if (cleanLine.length > 3 && cleanLine.length < 80 && /^[A-Z][A-Z\s&,\-]{2,}$/.test(cleanLine)) {
+      currentUnit = { name: toTitleCase(cleanLine), subtopics: [], weight: 1, priority: 'medium' };
       topics.push(currentUnit);
-      matched = true;
-      lastLineWasHeader = true;
-      consecutiveSubtopics = 0;
+      matched = true; lastLineWasHeader = true; consecutiveSubtopics = 0;
     }
     if (matched) continue;
 
-    // ---- TRY 3: Colon header ----
+    // ---- TRY 3: Colon-only header ----
     if (colonHeader.test(line)) {
       const name = line.replace(/:\s*$/, '').trim();
       if (name.length >= 3 && !skipPatterns.test(name)) {
         currentUnit = { name, subtopics: [], weight: 1, priority: 'medium' };
         topics.push(currentUnit);
-        matched = true;
-        lastLineWasHeader = true;
-        consecutiveSubtopics = 0;
+        matched = true; lastLineWasHeader = true; consecutiveSubtopics = 0;
       }
     }
     if (matched) continue;
@@ -122,15 +104,9 @@ export function extractTopics(text) {
     const bulletMatch = line.match(bulletSub);
     if (bulletMatch && bulletMatch[1].trim().length > 2) {
       const sub = bulletMatch[1].trim();
-      if (currentUnit) {
-        currentUnit.subtopics.push(sub);
-      } else {
-        currentUnit = { name: sub, subtopics: [], weight: 1, priority: 'medium' };
-        topics.push(currentUnit);
-      }
-      matched = true;
-      lastLineWasHeader = false;
-      consecutiveSubtopics++;
+      if (currentUnit) currentUnit.subtopics.push(sub);
+      else { currentUnit = { name: sub, subtopics: [], weight: 1, priority: 'medium' }; topics.push(currentUnit); }
+      matched = true; lastLineWasHeader = false; consecutiveSubtopics++;
     }
     if (matched) continue;
 
@@ -139,25 +115,14 @@ export function extractTopics(text) {
     if (numMatch) {
       const num = parseInt(numMatch[1]);
       const sub = numMatch[2].trim();
-
-      // If number is 1 and it looks like a header, start a new unit
       if (num === 1 && sub.length > 3 && (lastLineWasHeader || consecutiveSubtopics > 0 || !currentUnit) && /^[A-Z]/.test(sub)) {
         currentUnit = { name: sub, subtopics: [], weight: 1, priority: 'medium' };
         topics.push(currentUnit);
-        matched = true;
-        lastLineWasHeader = true;
-        consecutiveSubtopics = 0;
+        matched = true; lastLineWasHeader = true; consecutiveSubtopics = 0;
       } else if (sub.length > 2) {
-        // Otherwise it's a subtopic
-        if (currentUnit) {
-          currentUnit.subtopics.push(sub);
-        } else {
-          currentUnit = { name: sub, subtopics: [], weight: 1, priority: 'medium' };
-          topics.push(currentUnit);
-        }
-        matched = true;
-        lastLineWasHeader = false;
-        consecutiveSubtopics++;
+        if (currentUnit) currentUnit.subtopics.push(sub);
+        else { currentUnit = { name: sub, subtopics: [], weight: 1, priority: 'medium' }; topics.push(currentUnit); }
+        matched = true; lastLineWasHeader = false; consecutiveSubtopics++;
       }
     }
     if (matched) continue;
@@ -166,16 +131,43 @@ export function extractTopics(text) {
     const alphaMatch = line.match(alphaSub);
     if (alphaMatch && alphaMatch[2].trim().length > 2) {
       const sub = alphaMatch[2].trim();
-      if (currentUnit) {
-        currentUnit.subtopics.push(sub);
-      }
-      matched = true;
-      lastLineWasHeader = false;
-      consecutiveSubtopics++;
+      if (currentUnit) currentUnit.subtopics.push(sub);
+      matched = true; lastLineWasHeader = false; consecutiveSubtopics++;
     }
     if (matched) continue;
 
-    // ---- TRY 7: Generic short line (fallback) ----
+    // ---- TRY 7: Paragraph / Comma-separated format ----
+    // Handles: "Inheritance: Types of inheritance, Member access rules, Usage of super keyword"
+    if (!matched && line.length > 5 && currentUnit) {
+      // Check for sub-header like "Inheritance: Types of inheritance, ..."
+      const subHeaderMatch = line.match(/^([A-Z][a-zA-Z\s]{2,30}):\s+(.+)/);
+
+      if (subHeaderMatch) {
+        const subHeaderName = subHeaderMatch[1].trim();
+        const afterColon = subHeaderMatch[2].trim();
+        currentUnit.subtopics.push(subHeaderName);
+        const parts = splitCommaLine(afterColon);
+        for (const part of parts) {
+          if (part.length > 2 && part.toLowerCase() !== subHeaderName.toLowerCase()) {
+            currentUnit.subtopics.push(part);
+          }
+        }
+        matched = true; lastLineWasHeader = false; consecutiveSubtopics++;
+      } else if (line.includes(',') || line.includes(' - ')) {
+        // No sub-header, but has commas or dashes — split into subtopics
+        const normalized = line.replace(/\s*-\s*/g, ', ');
+        const parts = splitCommaLine(normalized);
+        for (const part of parts) {
+          if (part.length > 2) {
+            currentUnit.subtopics.push(part);
+          }
+        }
+        matched = true; lastLineWasHeader = false; consecutiveSubtopics++;
+      }
+    }
+    if (matched) continue;
+
+    // ---- TRY 8: Generic short line (fallback) ----
     if (line.length > 3 && line.length < 80 &&
         !line.endsWith('.') && !line.endsWith('?') && !line.endsWith('!') &&
         !skipPatterns.test(line)) {
@@ -184,32 +176,29 @@ export function extractTopics(text) {
 
       if (isHeaderLike && !lastLineWasHeader && currentUnit && currentUnit.subtopics.length === 0) {
         currentUnit.subtopics.push(line);
-        consecutiveSubtopics++;
-        lastLineWasHeader = false;
+        consecutiveSubtopics++; lastLineWasHeader = false;
       } else if (isHeaderLike && (lastLineWasHeader || !currentUnit || currentUnit.subtopics.length > 2)) {
         currentUnit = { name: line, subtopics: [], weight: 1, priority: 'medium' };
         topics.push(currentUnit);
-        lastLineWasHeader = true;
-        consecutiveSubtopics = 0;
+        lastLineWasHeader = true; consecutiveSubtopics = 0;
       } else if (currentUnit) {
         currentUnit.subtopics.push(line);
-        consecutiveSubtopics++;
-        lastLineWasHeader = false;
+        consecutiveSubtopics++; lastLineWasHeader = false;
       } else {
         currentUnit = { name: line, subtopics: [], weight: 1, priority: 'medium' };
         topics.push(currentUnit);
-        lastLineWasHeader = true;
-        consecutiveSubtopics = 0;
+        lastLineWasHeader = true; consecutiveSubtopics = 0;
       }
     }
   }
 
   // ---- POST-PROCESSING ----
 
-  // Merge orphan topics (no subtopics) into the previous topic
+  // Merge orphans — BUT NOT if they look like unit headers
   const merged = [];
   for (const t of topics) {
-    if (t.subtopics.length === 0 && merged.length > 0 && t.name.length < 60) {
+    const looksLikeHeader = /^[A-Z]{2,}/.test(t.name) || t.name.endsWith(':');
+    if (t.subtopics.length === 0 && merged.length > 0 && t.name.length < 60 && !looksLikeHeader) {
       merged[merged.length - 1].subtopics.push(t.name);
     } else {
       merged.push(t);
@@ -239,25 +228,13 @@ export function extractTopics(text) {
   if (deduped.length === 0) return deduped;
 
   // ---- WEIGHT CALCULATION ----
-
   const maxSub = Math.max(...deduped.map(t => t.subtopics.length), 1);
 
   deduped.forEach((t, idx) => {
-    // Factor 1: Subtopic density (0-3 points)
-    // More subtopics = more important chapter
     const densityScore = (t.subtopics.length / maxSub) * 3;
-
-    // Factor 2: Position bonus (0-0.6 points)
-    // Earlier chapters often build foundations, tested more
     const positionScore = (1 - (idx / deduped.length)) * 0.6;
-
-    // Factor 3: Keyword diversity (0-0.5 points)
-    // Diverse vocabulary in subtopics = broader topic
     const words = new Set(t.subtopics.join(' ').toLowerCase().split(/\s+/).filter(w => w.length > 3));
     const diversityScore = Math.min(words.size / 15, 0.5);
-
-    // Factor 4: Important keywords (0-0.6 points)
-    // Words like "introduction", "fundamentals" signal core chapters
     const importantKw = ['introduction', 'fundamentals', 'basics', 'overview', 'concepts', 'principles', 'design', 'analysis', 'architecture', 'management'];
     const hasImportant = importantKw.some(kw => t.name.toLowerCase().includes(kw)) ? 0.6 : 0;
 
@@ -265,7 +242,6 @@ export function extractTopics(text) {
     t.weight = Math.round(rawWeight * 10) / 10;
   });
 
-  // Normalize to 1-10 scale
   const maxW = Math.max(...deduped.map(t => t.weight));
   if (maxW > 0) {
     deduped.forEach(t => {
@@ -273,7 +249,6 @@ export function extractTopics(text) {
     });
   }
 
-  // Assign priority labels
   deduped.forEach(t => {
     if (t.weight >= 7) t.priority = 'high';
     else if (t.weight >= 4) t.priority = 'medium';
