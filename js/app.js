@@ -560,6 +560,123 @@ window.downloadPlan = function() {
 };
 
 // ============================
+// MANUAL ENTRY MODE
+// ============================
+
+let manualUnitCount = 0;
+
+// Switch input mode to include 'manual'
+window.switchInputMode = function(mode, btn) {
+  btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('textInputWrap').style.display = mode === 'text' ? 'block' : 'none';
+  document.getElementById('pdfInputWrap').style.display = mode === 'pdf' ? 'block' : 'none';
+  document.getElementById('manualInputWrap').style.display = mode === 'manual' ? 'block' : 'none';
+
+  // Auto-add first unit when switching to manual mode
+  if (mode === 'manual' && manualUnitCount === 0) {
+    addManualUnit();
+    addManualUnit();
+  }
+};
+
+// Add a new unit card to the manual entry form
+window.addManualUnit = function() {
+  manualUnitCount++;
+  const container = document.getElementById('manualUnits');
+  const card = document.createElement('div');
+  card.className = 'manual-unit-card';
+  card.id = `manual-unit-${manualUnitCount}`;
+  card.innerHTML = `
+    <div class="unit-card-header">
+      <span class="unit-number">Unit ${manualUnitCount}</span>
+      <button class="remove-unit-btn" onclick="removeManualUnit('manual-unit-${manualUnitCount}')">
+        <i class="fas fa-trash-alt"></i> Remove
+      </button>
+    </div>
+    <label class="field-label">Unit Name</label>
+    <input type="text" class="manual-unit-name" placeholder="e.g., Inheritance and Exceptions">
+    <label class="field-label">Subtopics (one per line)</label>
+    <textarea class="manual-unit-subs" placeholder="Types of inheritance&#10;Member access rules&#10;Usage of super keyword&#10;Method overriding"></textarea>
+  `;
+  container.appendChild(card);
+};
+
+// Remove a unit card
+window.removeManualUnit = function(cardId) {
+  const card = document.getElementById(cardId);
+  if (card) {
+    card.remove();
+    // Renumber remaining units
+    const cards = document.querySelectorAll('.manual-unit-card');
+    cards.forEach((c, i) => {
+      c.querySelector('.unit-number').textContent = `Unit ${i + 1}`;
+    });
+    manualUnitCount = cards.length;
+  }
+};
+
+// Convert manual entry data into the same format as extractTopics()
+function getManualTopics() {
+  const cards = document.querySelectorAll('.manual-unit-card');
+  const topics = [];
+
+  cards.forEach((card, idx) => {
+    const nameInput = card.querySelector('.manual-unit-name');
+    const subsTextarea = card.querySelector('.manual-unit-subs');
+
+    const name = nameInput ? nameInput.value.trim() : '';
+    const subsText = subsTextarea ? subsTextarea.value.trim() : '';
+
+    if (!name) return; // Skip empty units
+
+    const subtopics = subsText
+      .split('\n')
+      .map(s => s.trim().replace(/^[-•▪▸➤●○◦\d.)\s]+/, '')) // Remove bullets/numbers
+      .filter(s => s.length > 1);
+
+    topics.push({
+      name: name,
+      subtopics: subtopics,
+      weight: 1,
+      priority: 'medium'
+    });
+  });
+
+  // Apply the same weight calculation as the parser
+  if (topics.length === 0) return topics;
+
+  const maxSub = Math.max(...topics.map(t => t.subtopics.length), 1);
+
+  topics.forEach((t, idx) => {
+    const densityScore = (t.subtopics.length / maxSub) * 3;
+    const positionScore = (1 - (idx / topics.length)) * 0.6;
+    const words = new Set(t.subtopics.join(' ').toLowerCase().split(/\s+/).filter(w => w.length > 3));
+    const diversityScore = Math.min(words.size / 15, 0.5);
+    const importantKw = ['introduction', 'fundamentals', 'basics', 'overview', 'concepts', 'principles', 'design', 'analysis', 'architecture', 'management'];
+    const hasImportant = importantKw.some(kw => t.name.toLowerCase().includes(kw)) ? 0.6 : 0;
+
+    const rawWeight = 1 + densityScore + positionScore + diversityScore + hasImportant;
+    t.weight = Math.round(rawWeight * 10) / 10;
+  });
+
+  const maxW = Math.max(...topics.map(t => t.weight));
+  if (maxW > 0) {
+    topics.forEach(t => {
+      t.weight = Math.max(1, Math.round((t.weight / maxW) * 10 * 10) / 10);
+    });
+  }
+
+  topics.forEach(t => {
+    if (t.weight >= 7) t.priority = 'high';
+    else if (t.weight >= 4) t.priority = 'medium';
+    else t.priority = 'low';
+  });
+
+  return topics;
+}
+
+// ============================
 // TOAST NOTIFICATIONS
 // ============================
 function showToast(message, type = 'success') {
