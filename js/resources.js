@@ -549,7 +549,126 @@ function findCuratedMatch(topicName, subject) {
 }
 
 // ============================================================
-// YOUTUBE DATA API v3 — SINGLE TOP VIDEO
+// INVIDIOUS API — FREE YOUTUBE SEARCH (NO API KEY NEEDED)
+// ============================================================
+
+/**
+ * List of Invidious instances to try (in order of reliability).
+ * These are public YouTube frontends with JSON APIs.
+ */
+const INVIDIOUS_INSTANCES = [
+  'https://inv.nadeko.net',
+  'https://invidious.fdn.fr',
+  'https://vid.puffyan.us',
+  'https://invidious.lunar.icu',
+  'https://invidious.privacyredirect.com',
+  'https://invidious.protokolla.fi'
+];
+
+/**
+ * fetchVideoViaInvidious
+ *
+ * Uses the Invidious API to search YouTube and return the top video.
+ * This does NOT require a YouTube API key.
+ *
+ * @param {string} topicName  - Topic to search
+ * @param {string} subject    - Parent subject
+ * @param {string} lang       - Language code
+ * @returns {Promise<{title: string, channel: string, thumbnail: string, url: string}|null>}
+ */
+async function fetchVideoViaInvidious(topicName, subject, lang) {
+  const channels = YT_CHANNELS[lang] || YT_CHANNELS.en;
+  const query = `${subject} ${topicName} ${channels[0]}`;
+
+  for (const instance of INVIDIOUS_INSTANCES) {
+    try {
+      const apiUrl = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video&sort_by=relevance&duration=long`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
+      const response = await fetch(apiUrl, { 
+        signal: controller.signal 
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (!response.ok) continue;
+
+      const data = await response.json();
+      
+      if (!Array.isArray(data) || data.length === 0) continue;
+
+      // Score and pick the best video
+      let bestVideo = null;
+      let bestScore = -Infinity;
+
+      for (const video of data.slice(0, 5)) {
+        if (video.type !== 'video') continue;
+        
+        const channelName = (video.author || '').toLowerCase();
+        const videoTitle = (video.title || '').toLowerCase();
+        let score = 0;
+
+        // Bonus for preferred channels
+        channels.forEach((ch, idx) => {
+          if (channelName.includes(ch.toLowerCase())) {
+            score += (channels.length - idx) * 20;
+          }
+        });
+
+        // Bonus for educational keywords
+        if (/academy|university|lectures?|tutorial|education|learn|cs50|mit|nptel|gate|smashers/i.test(channelName)) {
+          score += 10;
+        }
+
+        // Bonus for relevant title words
+        const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+        const titleMatchCount = queryWords.filter(w => videoTitle.includes(w)).length;
+        score += titleMatchCount * 5;
+
+        // Bonus for longer videos (usually more educational)
+        if (video.lengthSeconds > 600) score += 5;  // > 10 min
+        if (video.lengthSeconds > 1200) score += 3; // > 20 min
+
+        // Penalty for very short videos
+        if (video.lengthSeconds < 120) score -= 10; // < 2 min
+
+        // Penalty for live streams
+        if (video.liveNow) score -= 50;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestVideo = video;
+        }
+      }
+
+      if (bestVideo) {
+        // Get best thumbnail
+        const thumbnails = bestVideo.videoThumbnails || [];
+        const bestThumb = thumbnails.find(t => t.quality === 'maxres') ||
+                          thumbnails.find(t => t.quality === 'high') ||
+                          thumbnails.find(t => t.quality === 'medium') ||
+                          thumbnails[0] || {};
+
+        return {
+          title: bestVideo.title,
+          channel: bestVideo.author,
+          thumbnail: bestThumb.url || '',
+          url: `https://www.youtube.com/watch?v=${bestVideo.videoId}`
+        };
+      }
+    } catch (err) {
+      // Try next instance
+      continue;
+    }
+  }
+
+  return null;
+}
+
+// ============================================================
+// YOUTUBE DATA API v3 — SINGLE TOP VIDEO (WITH API KEY)
 // ============================================================
 
 /**
@@ -594,7 +713,7 @@ async function searchAndPickBest(query, preferredChannels, lang, apiKey) {
     part: 'snippet',
     q: query,
     type: 'video',
-    maxResults: '3',                        // Only need a few to pick the best
+    maxResults: '3',
     key: apiKey,
     videoEmbeddable: 'true',
     videoSyndicated: 'true',
@@ -628,7 +747,7 @@ async function searchAndPickBest(query, preferredChannels, lang, apiKey) {
     // Strong bonus for matching a preferred educational channel
     preferredChannels.forEach((ch, idx) => {
       if (channelTitle.includes(ch.toLowerCase())) {
-        score += (preferredChannels.length - idx) * 15;   // Higher-ranked channel = more points
+        score += (preferredChannels.length - idx) * 15;
       }
     });
 
@@ -683,7 +802,11 @@ async function searchAndPickBest(query, preferredChannels, lang, apiKey) {
  * fetchAllResources
  *
  * For each topic, finds: one YouTube video, notes link, PYQ link.
- * Uses YouTube API when an apiKey is provided; otherwise falls back to search URLs.
+ * 
+ * Priority for YouTube:
+ *  1. YouTube API (if apiKey provided)
+ *  2. Invidious API (free, no key needed) - RETURNS DIRECT VIDEO
+ *  3. Fallback search URL (only if both above fail)
  */
 export async function fetchAllResources(topics, subject, lang, apiKey) {
   const resources = {};
@@ -695,7 +818,7 @@ export async function fetchAllResources(topics, subject, lang, apiKey) {
     const curatedMatch = findCuratedMatch(topic.name, subject);
 
     resources[topic.name] = {
-      // YouTube: single top video (filled by API if key provided)
+      // YouTube: single top video (filled by API or Invidious)
       youtube: null,
       youtubeFallbackUrl: getFallbackYTUrl(topic.name, subject, lang),
 
@@ -709,20 +832,45 @@ export async function fetchAllResources(topics, subject, lang, apiKey) {
     };
 
     // -------------------------------------------------------
-    // YouTube API — fetch single top video per topic
+    // YouTube Video Fetching Strategy:
+    // 1. Try YouTube API (if key provided)
+    // 2. Fall back to Invidious (free, no key needed)
     // -------------------------------------------------------
+    
+    let videoFound = false;
+
+    // Strategy 1: YouTube API with key
     if (apiKey) {
       try {
         const video = await fetchTopYouTubeVideo(topic.name, subject, lang, apiKey);
-        resources[topic.name].youtube = video;  // { title, channel, thumbnail, url } or null
+        if (video) {
+          resources[topic.name].youtube = video;
+          videoFound = true;
+        }
       } catch (err) {
         console.warn(`YouTube API error for "${topic.name}":`, err.message);
       }
+    }
 
-      // 200ms delay between API calls to respect quota limits
-      if (i < topics.length - 1) {
-        await new Promise(r => setTimeout(r, 200));
+    // Strategy 2: Invidious API (free fallback - gets DIRECT video link)
+    if (!videoFound) {
+      try {
+        const video = await fetchVideoViaInvidious(topic.name, subject, lang);
+        if (video) {
+          resources[topic.name].youtube = video;
+          videoFound = true;
+        }
+      } catch (err) {
+        console.warn(`Invidious API error for "${topic.name}":`, err.message);
       }
+    }
+
+    // If no video found at all, youtubeFallbackUrl will be used
+    // This is a search URL, but it's the last resort
+
+    // Delay between requests to be respectful
+    if (i < topics.length - 1) {
+      await new Promise(r => setTimeout(r, 150));
     }
   }
 
